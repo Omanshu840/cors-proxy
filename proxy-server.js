@@ -3,6 +3,7 @@ const cors = require('cors');
 const { createProxyMiddleware } = require('http-proxy-middleware');
 
 const app = express();
+const PORT = process.env.PORT || 8080;
 
 // Enable CORS for all routes
 app.use(cors());
@@ -19,6 +20,7 @@ app.use('/', createProxyMiddleware({
     }
     return targetUrl;
   },
+  
   pathRewrite: (path, req) => {
     const targetUrl = req.path.substring(1);
     // Extract pathname from the full URL
@@ -29,8 +31,46 @@ app.use('/', createProxyMiddleware({
       return '/';
     }
   },
+  
   changeOrigin: true,
-  logLevel: 'info'
+  
+  // ⭐ FORWARD ALL REQUEST HEADERS
+  headers: (req) => {
+    // Remove host header (it will be set automatically by http-proxy)
+    const headers = { ...req.headers };
+    delete headers.host;
+    return headers;
+  },
+  
+  // ⭐ PRESERVE ALL RESPONSE HEADERS
+  onProxyRes: (proxyRes, req, res) => {
+    // Copy all response headers as-is (this is the default behavior,
+    // but being explicit here)
+    Object.keys(proxyRes.headers).forEach(key => {
+      // Skip content-encoding to avoid double compression issues
+      if (key.toLowerCase() !== 'content-encoding') {
+        res.setHeader(key, proxyRes.headers[key]);
+      }
+    });
+  },
+  
+  // ⭐ FORWARD ALL REQUEST BODY DATA (for POST, PUT, etc.)
+  onProxyReq: (proxyReq, req, res) => {
+    // Forward request body if it exists
+    if (req.body) {
+      const bodyData = JSON.stringify(req.body);
+      proxyReq.setHeader('Content-Type', 'application/json');
+      proxyReq.setHeader('Content-Length', Buffer.byteLength(bodyData));
+      proxyReq.write(bodyData);
+    }
+  },
+  
+  logLevel: 'info',
+  
+  // ⭐ ADDITIONAL OPTIONS FOR BETTER HEADER FORWARDING
+  xfwd: true, // Adds X-Forwarded-For, X-Forwarded-Proto, X-Forwarded-Host
+  preserveHeaderKeyCase: true, // Keeps original header case
+  ws: true, // Support WebSockets if needed
 }));
 
 // Error handling
@@ -39,9 +79,9 @@ app.use((err, req, res, next) => {
   res.status(500).json({ error: 'Proxy request failed', message: err.message });
 });
 
-const PORT = process.env.PORT || 8080;
-
 app.listen(PORT, '0.0.0.0', () => {
-  console.log(`✅ Proxy running on port ${PORT}`);
+  console.log(`✅ CORS Proxy Server running on http://localhost:${PORT}`);
+  console.log(`\n📌 Usage examples:`);
+  console.log(`   http://localhost:${PORT}/https://www.google.com`);
+  console.log(`   http://localhost:${PORT}/https://api.example.com/endpoint`);
 });
-
